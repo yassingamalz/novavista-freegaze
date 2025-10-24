@@ -162,15 +162,21 @@ function App() {
           // Predict gaze
           const prediction = gazePredictionModel.predict(features.vector);
           if (prediction) {
+            console.log('🎯 Raw prediction:', prediction);
+            
             // Smooth coordinates
             const smoothed = gazeSmoother.smooth(prediction.x, prediction.y);
+            console.log('✨ Smoothed position:', smoothed);
             setGazePosition(smoothed);
             
             // Update dwell detector
             const dwellEvent = dwellDetector.update(smoothed);
             if (dwellEvent) {
+              console.log('👁️ Dwell event:', dwellEvent);
               setIsDwelling(dwellEvent.type === 'dwell_progress' || dwellEvent.type === 'dwell_start');
             }
+          } else {
+            console.warn('⚠️ Prediction returned null');
           }
         }
       }
