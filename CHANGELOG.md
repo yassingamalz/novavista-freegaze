@@ -8,17 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Added
-- Unit tests for core modules
+### Planned for v1.1.0
+- Fix test dependencies (vitest/jsdom)
 - Cross-browser compatibility testing
-- Performance benchmarks
-- User documentation
+- Performance optimizations
+- Mobile support
+- Settings panel
 
 ---
 
-## [1.0.0-alpha] - 2024
+## [1.0.0] - 2025-10-24
 
-### 🎉 Initial Alpha Release
+### 🎉 Initial Public Release
 
 First public release of NovaVista FreeGaze - open-source eye-tracking accessibility software.
 
