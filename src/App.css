@@ -275,6 +275,65 @@ body {
   }
 }
 
+/* Feature Display */
+.feature-display {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+}
+
+.feature-display h4 {
+  margin-bottom: 1rem;
+  color: #00d4ff;
+  font-size: 1.1rem;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.feature-item {
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  border-left: 2px solid #00d4ff;
+  transition: all 0.2s ease;
+}
+
+.feature-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateX(4px);
+}
+
+.feature-label {
+  font-size: 0.85rem;
+  color: #888;
+  margin-bottom: 0.25rem;
+  font-weight: 500;
+}
+
+.feature-value {
+  font-size: 1.3rem;
+  color: #00ff88;
+  font-weight: 600;
+  font-family: 'Courier New', monospace;
+}
+
+.feature-tip {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: rgba(0, 212, 255, 0.1);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #00d4ff;
+}
+
 /* High Contrast Mode */
 @media (prefers-contrast: high) {
   .App {

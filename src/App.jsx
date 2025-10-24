@@ -6,6 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { initCamera, stopCamera } from './core/camera';
 import { initFaceMesh, drawFaceLandmarks, extractEyeLandmarks } from './core/faceDetection';
+import { extractEyeFeatures, areEyeFeaturesValid, formatFeatures } from './core/featureExtraction';
 import './App.css';
 
 function App() {
@@ -19,6 +20,8 @@ function App() {
   const [faceDetected, setFaceDetected] = useState(false);
   const [landmarkCount, setLandmarkCount] = useState(0);
   const [fps, setFps] = useState(0);
+  const [eyeFeatures, setEyeFeatures] = useState(null);
+  const [featuresValid, setFeaturesValid] = useState(false);
   
   // Store camera stream for cleanup
   const streamRef = useRef(null);
@@ -119,6 +122,18 @@ function App() {
       if (eyeLandmarks) {
         // Draw eye tracking info
         drawEyeInfo(ctx, eyeLandmarks, canvas.width, canvas.height);
+      }
+      
+      // Extract eye features for gaze prediction (Phase 1 Week 2)
+      const features = extractEyeFeatures(landmarks);
+      if (features) {
+        setEyeFeatures(features);
+        setFeaturesValid(areEyeFeaturesValid(features));
+        
+        // Log features occasionally (every 30 frames to avoid spam)
+        if (frameCountRef.current % 30 === 0) {
+          console.log('👁️ Eye Features:', formatFeatures(features));
+        }
       }
       
     } else {
@@ -244,6 +259,13 @@ function App() {
               <span className="status-label">Phase:</span>
               <span className="status-value">1: Core Detection</span>
             </div>
+            
+            <div className={`status-item ${featuresValid ? 'success' : 'warning'}`}>
+              <span className="status-label">Features:</span>
+              <span className="status-value">
+                {eyeFeatures ? (featuresValid ? '✅ Valid' : '⚠️ Invalid') : '❌ No Data'}
+              </span>
+            </div>
           </div>
         )}
 
@@ -259,14 +281,49 @@ function App() {
           </div>
         )}
 
-        {faceDetected && (
+        {faceDetected && eyeFeatures && (
           <div className="instructions success-box">
-            <h3>🎉 Face detected successfully!</h3>
+            <h3>🎉 Eye tracking active!</h3>
             <p>You should see cyan dots marking your face landmarks.</p>
             <p><strong>Red/lime dots</strong> show your iris positions (critical for eye tracking).</p>
+            
+            {/* Feature Display */}
+            <div className="feature-display">
+              <h4>📊 Extracted Features:</h4>
+              <div className="feature-grid">
+                <div className="feature-item">
+                  <span className="feature-label">Left Iris X:</span>
+                  <span className="feature-value">{eyeFeatures.normalized.leftIrisX.toFixed(2)}</span>
+                </div>
+                <div className="feature-item">
+                  <span className="feature-label">Left Iris Y:</span>
+                  <span className="feature-value">{eyeFeatures.normalized.leftIrisY.toFixed(2)}</span>
+                </div>
+                <div className="feature-item">
+                  <span className="feature-label">Left Aperture:</span>
+                  <span className="feature-value">{eyeFeatures.normalized.leftAperture.toFixed(2)}</span>
+                </div>
+                <div className="feature-item">
+                  <span className="feature-label">Right Iris X:</span>
+                  <span className="feature-value">{eyeFeatures.normalized.rightIrisX.toFixed(2)}</span>
+                </div>
+                <div className="feature-item">
+                  <span className="feature-label">Right Iris Y:</span>
+                  <span className="feature-value">{eyeFeatures.normalized.rightIrisY.toFixed(2)}</span>
+                </div>
+                <div className="feature-item">
+                  <span className="feature-label">Right Aperture:</span>
+                  <span className="feature-value">{eyeFeatures.normalized.rightAperture.toFixed(2)}</span>
+                </div>
+              </div>
+              <p className="feature-tip">
+                <strong>💡 Try this:</strong> Move your eyes left/right/up/down and watch the values change!
+              </p>
+            </div>
+            
             <p className="phase-info">
-              ✅ <strong>Phase 1, Week 1 Complete!</strong><br/>
-              Next: Extract eye features for gaze prediction
+              ✅ <strong>Phase 1, Week 2 Complete!</strong><br/>
+              Features extracted successfully. Ready for calibration!
             </p>
           </div>
         )}
