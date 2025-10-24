@@ -35,6 +35,13 @@ function App() {
   const [mode, setMode] = useState('detection'); // 'detection', 'calibrating', 'tracking'
   const [isCalibrating, setIsCalibrating] = useState(false);
   
+  // Tracking state
+  const [eyeFeatures, setEyeFeatures] = useState(null);
+  const [gazePosition, setGazePosition] = useState(null);
+  const [isDwelling, setIsDwelling] = useState(false);
+  const [dwellProgress, setDwellProgress] = useState(0);
+  const [modelTrained, setModelTrained] = useState(false);
+  
   // Keep refs in sync
   useEffect(() => {
     modeRef.current = mode;
@@ -43,13 +50,6 @@ function App() {
   useEffect(() => {
     modelTrainedRef.current = modelTrained;
   }, [modelTrained]);
-  
-  // Tracking state
-  const [eyeFeatures, setEyeFeatures] = useState(null);
-  const [gazePosition, setGazePosition] = useState(null);
-  const [isDwelling, setIsDwelling] = useState(false);
-  const [dwellProgress, setDwellProgress] = useState(0);
-  const [modelTrained, setModelTrained] = useState(false);
 
   // Initialize on mount
   useEffect(() => {
@@ -179,15 +179,23 @@ function App() {
           // Predict gaze
           const prediction = gazePredictionModel.predict(features.vector);
           if (prediction) {
-            console.log('🎯 Raw prediction:', prediction);
+            console.log('🎯 Raw prediction (%):', prediction);
             
-            // Smooth coordinates
+            // Smooth coordinates (still in percentage)
             const smoothed = gazeSmoother.smooth(prediction.x, prediction.y);
-            console.log('✨ Smoothed position:', smoothed);
-            setGazePosition(smoothed);
+            console.log('✨ Smoothed position (%):', smoothed);
             
-            // Update dwell detector
-            const dwellEvent = dwellDetector.update(smoothed);
+            // Convert percentage to pixels
+            const pixelPosition = {
+              x: (smoothed.x / 100) * window.innerWidth,
+              y: (smoothed.y / 100) * window.innerHeight
+            };
+            console.log('📍 Pixel position:', pixelPosition);
+            
+            setGazePosition(pixelPosition);
+            
+            // Update dwell detector (use pixel position)
+            const dwellEvent = dwellDetector.update(pixelPosition);
             if (dwellEvent) {
               console.log('👁️ Dwell event:', dwellEvent);
               setIsDwelling(dwellEvent.type === 'dwell_progress' || dwellEvent.type === 'dwell_start');
