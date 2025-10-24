@@ -22,6 +22,8 @@ function App() {
   const streamRef = useRef(null);
   const lastFrameTimeRef = useRef(Date.now());
   const frameCountRef = useRef(0);
+  const modeRef = useRef('detection');
+  const modelTrainedRef = useRef(false);
   
   // Core state
   const [isInitialized, setIsInitialized] = useState(false);
@@ -32,6 +34,15 @@ function App() {
   // Mode state
   const [mode, setMode] = useState('detection'); // 'detection', 'calibrating', 'tracking'
   const [isCalibrating, setIsCalibrating] = useState(false);
+  
+  // Keep refs in sync
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+  
+  useEffect(() => {
+    modelTrainedRef.current = modelTrained;
+  }, [modelTrained]);
   
   // Tracking state
   const [eyeFeatures, setEyeFeatures] = useState(null);
@@ -145,20 +156,26 @@ function App() {
       frameCountRef.current++;
       
       // Draw landmarks (only in detection/calibration mode)
-      if (mode !== 'tracking') {
+      if (modeRef.current !== 'tracking') {
         drawFaceLandmarks(ctx, landmarks, canvas.width, canvas.height);
       }
       
       // Extract features
       const features = extractEyeFeatures(landmarks);
+      console.log('🔍 Features extracted:', features ? 'YES' : 'NO', 'Valid:', features && areEyeFeaturesValid(features) ? 'YES' : 'NO');
+      console.log('📊 Current mode:', modeRef.current, 'Model trained:', modelTrainedRef.current);
+      
       if (features && areEyeFeaturesValid(features)) {
         setEyeFeatures(features);
         
-        // Handle different modes
-        if (mode === 'calibrating' && isCalibrating) {
+        // Handle different modes (use refs for current values)
+        const currentMode = modeRef.current;
+        const isModelTrained = modelTrainedRef.current;
+        
+        if (currentMode === 'calibrating' && isCalibrating) {
           // Collect calibration data
           // (handled by Calibration component)
-        } else if (mode === 'tracking' && modelTrained) {
+        } else if (currentMode === 'tracking' && isModelTrained) {
           // Predict gaze
           const prediction = gazePredictionModel.predict(features.vector);
           if (prediction) {
