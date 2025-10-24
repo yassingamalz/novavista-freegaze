@@ -72,6 +72,8 @@ body {
   display: block;
   max-width: 100%;
   height: auto;
+  transform: scaleX(-1); /* Mirror the video horizontally (like a mirror) */
+  -webkit-transform: scaleX(-1); /* Safari support */
 }
 
 .video-overlay {

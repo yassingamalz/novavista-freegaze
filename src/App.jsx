@@ -1,9 +1,10 @@
 /**
  * NovaVista FreeGaze - Main Application Component
  * Full Integration: Detection + Calibration + Prediction + Tracking
+ * v1.1 - With Performance Optimizations and Debug Mode
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { initCamera, stopCamera } from './core/camera';
 import { initFaceMesh, drawFaceLandmarks } from './core/faceDetection';
 import { extractEyeFeatures, areEyeFeaturesValid } from './core/featureExtraction';
@@ -24,12 +25,14 @@ function App() {
   const frameCountRef = useRef(0);
   const modeRef = useRef('detection');
   const modelTrainedRef = useRef(false);
+  const debugModeRef = useRef(false);
   
   // Core state
   const [isInitialized, setIsInitialized] = useState(false);
   const [error, setError] = useState(null);
   const [faceDetected, setFaceDetected] = useState(false);
   const [fps, setFps] = useState(0);
+  const [debugMode, setDebugMode] = useState(false);
   
   // Mode state
   const [mode, setMode] = useState('detection'); // 'detection', 'calibrating', 'tracking'
@@ -50,6 +53,10 @@ function App() {
   useEffect(() => {
     modelTrainedRef.current = modelTrained;
   }, [modelTrained]);
+  
+  useEffect(() => {
+    debugModeRef.current = debugMode;
+  }, [debugMode]);
 
   // Initialize on mount
   useEffect(() => {
@@ -57,7 +64,7 @@ function App() {
     
     async function setup() {
       try {
-        console.log('🚀 Initializing NovaVista FreeGaze...');
+        console.log('🚀 Initializing NovaVista FreeGaze v1.1...');
         
         const stream = await initCamera(videoRef.current);
         streamRef.current = stream;
@@ -113,7 +120,7 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Setup dwell detector callbacks
+  // Setup dwell detector callbacks (use useCallback to avoid recreating)
   useEffect(() => {
     dwellDetector.onProgress((progress) => {
       setDwellProgress(progress);
@@ -133,9 +140,9 @@ function App() {
   }, []);
 
   /**
-   * Face detection callback
+   * Face detection callback (optimized with useCallback)
    */
-  function onFaceDetected(results) {
+  const onFaceDetected = useCallback((results) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
@@ -155,15 +162,13 @@ function App() {
       setFaceDetected(true);
       frameCountRef.current++;
       
-      // Draw landmarks (only in detection/calibration mode)
-      if (modeRef.current !== 'tracking') {
+      // Draw landmarks (only in detection/calibration mode, or if debug mode is on)
+      if (modeRef.current !== 'tracking' || debugModeRef.current) {
         drawFaceLandmarks(ctx, landmarks, canvas.width, canvas.height);
       }
       
       // Extract features
       const features = extractEyeFeatures(landmarks);
-      console.log('🔍 Features extracted:', features ? 'YES' : 'NO', 'Valid:', features && areEyeFeaturesValid(features) ? 'YES' : 'NO');
-      console.log('📊 Current mode:', modeRef.current, 'Model trained:', modelTrainedRef.current);
       
       if (features && areEyeFeaturesValid(features)) {
         setEyeFeatures(features);
@@ -173,35 +178,34 @@ function App() {
         const isModelTrained = modelTrainedRef.current;
         
         if (currentMode === 'calibrating' && isCalibrating) {
-          // Collect calibration data
-          // (handled by Calibration component)
+          // Collect calibration data (handled by Calibration component)
         } else if (currentMode === 'tracking' && isModelTrained) {
           // Predict gaze
           const prediction = gazePredictionModel.predict(features.vector);
           if (prediction) {
-            console.log('🎯 Raw prediction (%):', prediction);
+            // Mirror X coordinate (because video is flipped horizontally)
+            const mirroredPrediction = {
+              x: 100 - prediction.x, // Flip horizontally
+              y: prediction.y
+            };
             
             // Smooth coordinates (still in percentage)
-            const smoothed = gazeSmoother.smooth(prediction.x, prediction.y);
-            console.log('✨ Smoothed position (%):', smoothed);
+            const smoothed = gazeSmoother.smooth(mirroredPrediction.x, mirroredPrediction.y);
             
             // Convert percentage to pixels
             const pixelPosition = {
               x: (smoothed.x / 100) * window.innerWidth,
               y: (smoothed.y / 100) * window.innerHeight
             };
-            console.log('📍 Pixel position:', pixelPosition);
             
             setGazePosition(pixelPosition);
             
             // Update dwell detector (use pixel position)
             const dwellEvent = dwellDetector.update(pixelPosition);
-            if (dwellEvent) {
-              console.log('👁️ Dwell event:', dwellEvent);
-              setIsDwelling(dwellEvent.type === 'dwell_progress' || dwellEvent.type === 'dwell_start');
+            if (dwellEvent && dwellEvent.type === 'click') {
+              console.log('👁️ Click event:', dwellEvent);
             }
-          } else {
-            console.warn('⚠️ Prediction returned null');
+            setIsDwelling(dwellEvent && (dwellEvent.type === 'dwell_progress' || dwellEvent.type === 'dwell_start'));
           }
         }
       }
@@ -210,7 +214,7 @@ function App() {
       setFaceDetected(false);
       setEyeFeatures(null);
     }
-  }
+  }, [isCalibrating]);
 
   /**
    * Start calibration
@@ -230,6 +234,11 @@ function App() {
     try {
       console.log('🎓 Training model...');
       const data = calibrationManager.getCalibrationData();
+      
+      // Validate calibration data
+      if (!data || data.length < 9) {
+        throw new Error(`Not enough calibration points. Got ${data?.length || 0}, need 9.`);
+      }
       
       // Train model
       await gazePredictionModel.train(data, {
@@ -252,7 +261,7 @@ function App() {
       
     } catch (error) {
       console.error('❌ Calibration failed:', error);
-      setError('Calibration failed. Please try again.');
+      setError(`Calibration failed: ${error.message}\n\nPlease ensure:\n  • Good lighting (face the window, not backlit)\n  • Face clearly visible in camera\n  • Look directly at each calibration point\n  • Hold your head still during calibration\n\nClick 'Reload Page' to try again.`);
       setMode('detection');
     }
   }
@@ -277,8 +286,8 @@ function App() {
         {error && (
           <div className="error-message">
             <h2>❌ Error</h2>
-            <p>{error}</p>
-            <button onClick={() => window.location.reload()}>Try Again</button>
+            <p style={{ whiteSpace: 'pre-wrap' }}>{error}</p>
+            <button onClick={() => window.location.reload()}>Reload Page</button>
           </div>
         )}
 
@@ -306,7 +315,7 @@ function App() {
               <span className="status-label">Face:</span>
               <span className="status-value">{faceDetected ? '✅ Detected' : '❌ Not Found'}</span>
             </div>
-            <div className="status-item">
+            <div className={`status-item ${fps >= 20 ? 'success' : fps >= 15 ? 'warning' : ''}`}>
               <span className="status-label">FPS:</span>
               <span className="status-value">{fps}</span>
             </div>
@@ -334,8 +343,11 @@ function App() {
                 <button className="recalibrate-button" onClick={startCalibration}>
                   🔄 Re-Calibrate
                 </button>
-                <button className="toggle-cursor-button" onClick={() => setMode('detection')}>
-                  👁️ Show Landmarks
+                <button 
+                  className="toggle-cursor-button" 
+                  onClick={() => setDebugMode(!debugMode)}
+                >
+                  {debugMode ? '👁️ Hide Debug' : '🔍 Show Debug'}
                 </button>
               </>
             )}
@@ -370,8 +382,47 @@ function App() {
         {mode === 'tracking' && modelTrained && (
           <div className="instructions success-box">
             <h3>🎉 Eye Tracking Active!</h3>
-            <p>Look at any point and hold for 1.5 seconds to click.</p>
+            <p>Look at any point and hold for 0.6 seconds to click.</p>
             <p>Green cursor shows your gaze position.</p>
+            <p className="phase-info">🪞 Video is mirrored like looking in a mirror for natural interaction</p>
+            
+            {/* Debug Mode Feature Display */}
+            {debugMode && eyeFeatures && (
+              <div className="feature-display">
+                <h4>🔍 Debug Info - Eye Features</h4>
+                <div className="feature-grid">
+                  <div className="feature-item">
+                    <span className="feature-label">Left Iris X</span>
+                    <span className="feature-value">{eyeFeatures.normalized.leftIrisX.toFixed(2)}</span>
+                  </div>
+                  <div className="feature-item">
+                    <span className="feature-label">Left Iris Y</span>
+                    <span className="feature-value">{eyeFeatures.normalized.leftIrisY.toFixed(2)}</span>
+                  </div>
+                  <div className="feature-item">
+                    <span className="feature-label">Right Iris X</span>
+                    <span className="feature-value">{eyeFeatures.normalized.rightIrisX.toFixed(2)}</span>
+                  </div>
+                  <div className="feature-item">
+                    <span className="feature-label">Right Iris Y</span>
+                    <span className="feature-value">{eyeFeatures.normalized.rightIrisY.toFixed(2)}</span>
+                  </div>
+                  <div className="feature-item">
+                    <span className="feature-label">Left Aperture</span>
+                    <span className="feature-value">{eyeFeatures.normalized.leftAperture.toFixed(2)}</span>
+                  </div>
+                  <div className="feature-item">
+                    <span className="feature-label">Right Aperture</span>
+                    <span className="feature-value">{eyeFeatures.normalized.rightAperture.toFixed(2)}</span>
+                  </div>
+                </div>
+                <div className="feature-tip">
+                  💡 Move your eyes around - these values should change smoothly!
+                  <br />
+                  If values are stuck, try re-calibrating in better lighting.
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -397,7 +448,7 @@ function App() {
       )}
 
       <footer className="App-footer">
-        <p>Built with ❤️ by NovaVista | v1.0 Alpha</p>
+        <p>Built with ❤️ by NovaVista | v1.1 Alpha - Optimized</p>
       </footer>
     </div>
   );

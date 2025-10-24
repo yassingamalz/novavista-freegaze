@@ -13,9 +13,10 @@ export async function initCamera(videoElement) {
     // Request camera access with optimal settings for face detection
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        facingMode: "user" // Front-facing camera
+        width: { ideal: 640 },  // Reduced from 1280 for better FPS
+        height: { ideal: 480 }, // Reduced from 720 for better FPS
+        facingMode: "user",     // Front-facing camera
+        frameRate: { ideal: 30, max: 30 } // Lock to 30 FPS
       }
     });
     

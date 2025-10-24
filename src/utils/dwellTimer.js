@@ -184,7 +184,7 @@ export class DwellDetector {
 
 // Export singleton instance
 export const dwellDetector = new DwellDetector({
-  dwellTime: 1500,
+  dwellTime: 600,  // Reduced from 1500ms to 600ms (much better UX)
   threshold: 50,
   enabled: true
 });

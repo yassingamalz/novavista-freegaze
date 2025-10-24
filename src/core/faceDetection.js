@@ -6,6 +6,41 @@
 import { FaceMesh } from '@mediapipe/face_mesh';
 import { Camera } from '@mediapipe/camera_utils';
 
+// Landmark position smoother to reduce jitter
+class LandmarkSmoother {
+  constructor(smoothingFactor = 0.5) {
+    this.smoothingFactor = smoothingFactor;
+    this.previousLandmarks = null;
+  }
+
+  smooth(landmarks) {
+    if (!this.previousLandmarks || this.previousLandmarks.length !== landmarks.length) {
+      this.previousLandmarks = landmarks;
+      return landmarks;
+    }
+
+    // Apply exponential moving average
+    const smoothed = landmarks.map((landmark, i) => {
+      const prev = this.previousLandmarks[i];
+      return {
+        x: prev.x * this.smoothingFactor + landmark.x * (1 - this.smoothingFactor),
+        y: prev.y * this.smoothingFactor + landmark.y * (1 - this.smoothingFactor),
+        z: prev.z * this.smoothingFactor + (landmark.z || 0) * (1 - this.smoothingFactor)
+      };
+    });
+
+    this.previousLandmarks = smoothed;
+    return smoothed;
+  }
+
+  reset() {
+    this.previousLandmarks = null;
+  }
+}
+
+// Create singleton smoother instance
+const landmarkSmoother = new LandmarkSmoother(0.6); // Higher = more smoothing
+
 /**
  * Initialize MediaPipe FaceMesh with optimized settings for eye tracking
  * @param {HTMLVideoElement} videoElement - The video element to process
@@ -29,8 +64,17 @@ export async function initFaceMesh(videoElement, onResults) {
     minTrackingConfidence: 0.5   // Minimum confidence for tracking
   });
 
-  // Set callback for detection results
-  faceMesh.onResults(onResults);
+  // Wrap onResults to add smoothing
+  faceMesh.onResults((results) => {
+    if (results.multiFaceLandmarks && results.multiFaceLandmarks[0]) {
+      // Apply smoothing to reduce jitter
+      results.multiFaceLandmarks[0] = landmarkSmoother.smooth(results.multiFaceLandmarks[0]);
+    } else {
+      // Reset smoother when face is lost
+      landmarkSmoother.reset();
+    }
+    onResults(results);
+  });
 
   // Initialize camera with FaceMesh processing
   const camera = new Camera(videoElement, {
@@ -38,45 +82,51 @@ export async function initFaceMesh(videoElement, onResults) {
       // Send each frame to FaceMesh for processing
       await faceMesh.send({ image: videoElement });
     },
-    width: 1280,
-    height: 720
+    width: 640,  // Reduced for better FPS
+    height: 480  // Reduced for better FPS
   });
   
   // Start the camera
   await camera.start();
   
-  console.log('✅ MediaPipe FaceMesh initialized successfully');
+  console.log('✅ MediaPipe FaceMesh initialized with landmark smoothing');
   console.log('📊 Tracking mode: Single face with iris refinement');
   
   return { faceMesh, camera };
 }
 
 /**
- * Draw face landmarks on canvas for visualization
+ * Draw face landmarks on canvas for visualization (optimized)
  * @param {CanvasRenderingContext2D} ctx - Canvas context
  * @param {Array} landmarks - Face landmarks from MediaPipe
  * @param {number} width - Canvas width
  * @param {number} height - Canvas height
  */
 export function drawFaceLandmarks(ctx, landmarks, width, height) {
-  // Clear previous drawings
-  ctx.clearRect(0, 0, width, height);
-  
   if (!landmarks || landmarks.length === 0) return;
   
-  // Draw all 468 face landmarks
+  // Use batch drawing for better performance
+  ctx.save();
+  
+  // Draw face landmarks (cyan, smaller)
   ctx.fillStyle = 'cyan';
-  landmarks.forEach((landmark, index) => {
+  ctx.globalAlpha = 0.6; // Slight transparency
+  
+  // Draw landmarks in batches for better performance
+  for (let i = 0; i < landmarks.length; i++) {
+    if (i >= 468) break; // Skip iris landmarks, will draw separately
+    
+    const landmark = landmarks[i];
     const x = landmark.x * width;
     const y = landmark.y * height;
     
-    ctx.beginPath();
-    ctx.arc(x, y, 2, 0, 2 * Math.PI);
-    ctx.fill();
-  });
+    ctx.fillRect(x - 1, y - 1, 2, 2); // Use fillRect instead of arc (faster)
+  }
   
-  // Highlight iris landmarks (468-477) in different color
+  // Draw iris landmarks (red, larger)
   ctx.fillStyle = 'red';
+  ctx.globalAlpha = 1.0;
+  
   for (let i = 468; i < 478 && i < landmarks.length; i++) {
     const landmark = landmarks[i];
     const x = landmark.x * width;
@@ -86,6 +136,8 @@ export function drawFaceLandmarks(ctx, landmarks, width, height) {
     ctx.arc(x, y, 4, 0, 2 * Math.PI);
     ctx.fill();
   }
+  
+  ctx.restore();
 }
 
 /**
