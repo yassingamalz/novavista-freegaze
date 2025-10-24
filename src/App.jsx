@@ -1,34 +1,46 @@
 /**
  * NovaVista FreeGaze - Main Application Component
- * Phase 1: Core Detection - Camera & Face Tracking
+ * Full Integration: Detection + Calibration + Prediction + Tracking
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import { initCamera, stopCamera } from './core/camera';
-import { initFaceMesh, drawFaceLandmarks, extractEyeLandmarks } from './core/faceDetection';
-import { extractEyeFeatures, areEyeFeaturesValid, formatFeatures } from './core/featureExtraction';
+import { initFaceMesh, drawFaceLandmarks } from './core/faceDetection';
+import { extractEyeFeatures, areEyeFeaturesValid } from './core/featureExtraction';
+import { calibrationManager } from './core/calibration';
+import { gazePredictionModel } from './core/prediction';
+import { gazeSmoother } from './utils/smoothing';
+import { dwellDetector } from './utils/dwellTimer';
+import Calibration from './ui/Calibration';
+import GazeCursor from './ui/GazeCursor';
 import './App.css';
 
 function App() {
-  // References to video and canvas elements
+  // References
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  
-  // State management
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [error, setError] = useState(null);
-  const [faceDetected, setFaceDetected] = useState(false);
-  const [landmarkCount, setLandmarkCount] = useState(0);
-  const [fps, setFps] = useState(0);
-  const [eyeFeatures, setEyeFeatures] = useState(null);
-  const [featuresValid, setFeaturesValid] = useState(false);
-  
-  // Store camera stream for cleanup
   const streamRef = useRef(null);
   const lastFrameTimeRef = useRef(Date.now());
   const frameCountRef = useRef(0);
+  
+  // Core state
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [error, setError] = useState(null);
+  const [faceDetected, setFaceDetected] = useState(false);
+  const [fps, setFps] = useState(0);
+  
+  // Mode state
+  const [mode, setMode] = useState('detection'); // 'detection', 'calibrating', 'tracking'
+  const [isCalibrating, setIsCalibrating] = useState(false);
+  
+  // Tracking state
+  const [eyeFeatures, setEyeFeatures] = useState(null);
+  const [gazePosition, setGazePosition] = useState(null);
+  const [isDwelling, setIsDwelling] = useState(false);
+  const [dwellProgress, setDwellProgress] = useState(0);
+  const [modelTrained, setModelTrained] = useState(false);
 
-  // Initialize camera and face detection on mount
+  // Initialize on mount
   useEffect(() => {
     let mounted = true;
     
@@ -36,7 +48,6 @@ function App() {
       try {
         console.log('🚀 Initializing NovaVista FreeGaze...');
         
-        // Step 1: Initialize camera
         const stream = await initCamera(videoRef.current);
         streamRef.current = stream;
         
@@ -45,23 +56,29 @@ function App() {
           return;
         }
         
-        // Step 2: Initialize MediaPipe FaceMesh
         await initFaceMesh(videoRef.current, onFaceDetected);
         
         if (!mounted) return;
         
+        // Try to load saved model
+        const loaded = await gazePredictionModel.loadModel();
+        if (loaded) {
+          setModelTrained(true);
+          setMode('tracking');
+          console.log('✅ Model loaded from storage');
+        }
+        
         setIsInitialized(true);
-        console.log('✅ Setup complete! Looking for your face...');
+        console.log('✅ Setup complete!');
         
       } catch (err) {
         console.error('❌ Setup failed:', err);
-        setError(err.message || 'Failed to initialize. Please check camera permissions.');
+        setError(err.message || 'Failed to initialize');
       }
     }
     
     setup();
     
-    // Cleanup on unmount
     return () => {
       mounted = false;
       if (streamRef.current) {
@@ -85,9 +102,27 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Setup dwell detector callbacks
+  useEffect(() => {
+    dwellDetector.onProgress((progress) => {
+      setDwellProgress(progress);
+    });
+
+    dwellDetector.onClick((event) => {
+      console.log('👆 Click at:', event.position);
+      // Trigger actual click event
+      const clickEvent = new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX: event.position.x,
+        clientY: event.position.y
+      });
+      document.elementFromPoint(event.position.x, event.position.y)?.dispatchEvent(clickEvent);
+    });
+  }, []);
+
   /**
-   * Callback for MediaPipe face detection results
-   * @param {Object} results - Detection results from MediaPipe
+   * Face detection callback
    */
   function onFaceDetected(results) {
     const canvas = canvasRef.current;
@@ -96,95 +131,107 @@ function App() {
     const ctx = canvas.getContext('2d');
     const videoElement = videoRef.current;
     
-    // Update canvas size to match video
     if (canvas.width !== videoElement.videoWidth) {
       canvas.width = videoElement.videoWidth;
       canvas.height = videoElement.videoHeight;
     }
     
-    // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Check if face is detected
     if (results.multiFaceLandmarks && results.multiFaceLandmarks[0]) {
       const landmarks = results.multiFaceLandmarks[0];
       
-      // Update state
       setFaceDetected(true);
-      setLandmarkCount(landmarks.length);
       frameCountRef.current++;
       
-      // Draw landmarks
-      drawFaceLandmarks(ctx, landmarks, canvas.width, canvas.height);
-      
-      // Extract and log eye landmarks (for debugging)
-      const eyeLandmarks = extractEyeLandmarks(landmarks);
-      if (eyeLandmarks) {
-        // Draw eye tracking info
-        drawEyeInfo(ctx, eyeLandmarks, canvas.width, canvas.height);
+      // Draw landmarks (only in detection/calibration mode)
+      if (mode !== 'tracking') {
+        drawFaceLandmarks(ctx, landmarks, canvas.width, canvas.height);
       }
       
-      // Extract eye features for gaze prediction (Phase 1 Week 2)
+      // Extract features
       const features = extractEyeFeatures(landmarks);
-      if (features) {
+      if (features && areEyeFeaturesValid(features)) {
         setEyeFeatures(features);
-        setFeaturesValid(areEyeFeaturesValid(features));
         
-        // Log features occasionally (every 30 frames to avoid spam)
-        if (frameCountRef.current % 30 === 0) {
-          console.log('👁️ Eye Features:', formatFeatures(features));
+        // Handle different modes
+        if (mode === 'calibrating' && isCalibrating) {
+          // Collect calibration data
+          // (handled by Calibration component)
+        } else if (mode === 'tracking' && modelTrained) {
+          // Predict gaze
+          const prediction = gazePredictionModel.predict(features.vector);
+          if (prediction) {
+            // Smooth coordinates
+            const smoothed = gazeSmoother.smooth(prediction.x, prediction.y);
+            setGazePosition(smoothed);
+            
+            // Update dwell detector
+            const dwellEvent = dwellDetector.update(smoothed);
+            if (dwellEvent) {
+              setIsDwelling(dwellEvent.type === 'dwell_progress' || dwellEvent.type === 'dwell_start');
+            }
+          }
         }
       }
       
     } else {
       setFaceDetected(false);
-      setLandmarkCount(0);
+      setEyeFeatures(null);
     }
   }
 
   /**
-   * Draw eye tracking information on canvas
+   * Start calibration
    */
-  function drawEyeInfo(ctx, eyeLandmarks, width, height) {
-    const { leftEye, rightEye } = eyeLandmarks;
+  function startCalibration() {
+    setMode('calibrating');
+    setIsCalibrating(true);
+    calibrationManager.startCalibration();
+  }
+
+  /**
+   * Handle calibration complete
+   */
+  async function handleCalibrationComplete(calibrationData) {
+    setIsCalibrating(false);
     
-    // Draw eye centers
-    ctx.strokeStyle = 'yellow';
-    ctx.lineWidth = 2;
-    
-    // Left eye box
-    ctx.beginPath();
-    ctx.moveTo(leftEye.inner.x * width, leftEye.inner.y * height);
-    ctx.lineTo(leftEye.outer.x * width, leftEye.outer.y * height);
-    ctx.stroke();
-    
-    // Right eye box
-    ctx.beginPath();
-    ctx.moveTo(rightEye.inner.x * width, rightEye.inner.y * height);
-    ctx.lineTo(rightEye.outer.x * width, rightEye.outer.y * height);
-    ctx.stroke();
-    
-    // Draw iris centers (larger circles)
-    ctx.fillStyle = 'lime';
-    ctx.beginPath();
-    ctx.arc(
-      leftEye.iris.center.x * width,
-      leftEye.iris.center.y * height,
-      6,
-      0,
-      2 * Math.PI
-    );
-    ctx.fill();
-    
-    ctx.beginPath();
-    ctx.arc(
-      rightEye.iris.center.x * width,
-      rightEye.iris.center.y * height,
-      6,
-      0,
-      2 * Math.PI
-    );
-    ctx.fill();
+    try {
+      console.log('🎓 Training model...');
+      const data = calibrationManager.getCalibrationData();
+      
+      // Train model
+      await gazePredictionModel.train(data, {
+        epochs: 100,
+        batchSize: 8,
+        verbose: 0
+      });
+      
+      // Save model
+      await gazePredictionModel.saveModel();
+      calibrationManager.saveToStorage();
+      
+      setModelTrained(true);
+      setMode('tracking');
+      
+      // Enable dwell detector
+      dwellDetector.setEnabled(true);
+      
+      console.log('✅ Calibration complete! Starting tracking...');
+      
+    } catch (error) {
+      console.error('❌ Calibration failed:', error);
+      setError('Calibration failed. Please try again.');
+      setMode('detection');
+    }
+  }
+
+  /**
+   * Cancel calibration
+   */
+  function handleCalibrationCancel() {
+    setIsCalibrating(false);
+    setMode('detection');
   }
 
   return (
@@ -200,140 +247,126 @@ function App() {
           <div className="error-message">
             <h2>❌ Error</h2>
             <p>{error}</p>
-            <button onClick={() => window.location.reload()}>
-              Try Again
-            </button>
+            <button onClick={() => window.location.reload()}>Try Again</button>
           </div>
         )}
 
         {/* Video Container */}
         {!error && (
           <div className="video-container">
-            <video 
-              ref={videoRef} 
-              style={{ display: 'none' }}
-              playsInline
-            />
+            <video ref={videoRef} style={{ display: 'none' }} playsInline />
             <canvas ref={canvasRef} className="face-canvas" />
             
-            {/* Overlay Info */}
-            <div className="video-overlay">
-              {!isInitialized && (
+            {!isInitialized && (
+              <div className="video-overlay">
                 <div className="loading">
                   <div className="spinner"></div>
-                  <p>Initializing camera and face detection...</p>
+                  <p>Initializing...</p>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
         {/* Status Panel */}
         {isInitialized && (
           <div className="status-panel">
-            <div className={`status-item ${isInitialized ? 'success' : ''}`}>
-              <span className="status-label">System:</span>
-              <span className="status-value">
-                {isInitialized ? '✅ Ready' : '⏳ Initializing...'}
-              </span>
-            </div>
-            
             <div className={`status-item ${faceDetected ? 'success' : 'warning'}`}>
-              <span className="status-label">Face Detection:</span>
-              <span className="status-value">
-                {faceDetected ? '✅ Face Detected' : '❌ No Face'}
-              </span>
+              <span className="status-label">Face:</span>
+              <span className="status-value">{faceDetected ? '✅ Detected' : '❌ Not Found'}</span>
             </div>
-            
-            <div className="status-item">
-              <span className="status-label">Landmarks:</span>
-              <span className="status-value">{landmarkCount} points</span>
-            </div>
-            
             <div className="status-item">
               <span className="status-label">FPS:</span>
               <span className="status-value">{fps}</span>
             </div>
-            
             <div className="status-item">
-              <span className="status-label">Phase:</span>
-              <span className="status-value">1: Core Detection</span>
+              <span className="status-label">Mode:</span>
+              <span className="status-value">{mode}</span>
             </div>
-            
-            <div className={`status-item ${featuresValid ? 'success' : 'warning'}`}>
-              <span className="status-label">Features:</span>
-              <span className="status-value">
-                {eyeFeatures ? (featuresValid ? '✅ Valid' : '⚠️ Invalid') : '❌ No Data'}
-              </span>
+            <div className={`status-item ${modelTrained ? 'success' : ''}`}>
+              <span className="status-label">Model:</span>
+              <span className="status-value">{modelTrained ? '✅ Trained' : '⏳ Not Trained'}</span>
             </div>
+          </div>
+        )}
+
+        {/* Control Buttons */}
+        {isInitialized && !isCalibrating && faceDetected && (
+          <div className="control-buttons">
+            {!modelTrained && (
+              <button className="calibrate-button" onClick={startCalibration}>
+                🎯 Start Calibration
+              </button>
+            )}
+            {modelTrained && mode === 'tracking' && (
+              <>
+                <button className="recalibrate-button" onClick={startCalibration}>
+                  🔄 Re-Calibrate
+                </button>
+                <button className="toggle-cursor-button" onClick={() => setMode('detection')}>
+                  👁️ Show Landmarks
+                </button>
+              </>
+            )}
+            {mode === 'detection' && modelTrained && (
+              <button className="tracking-button" onClick={() => setMode('tracking')}>
+                🎯 Start Tracking
+              </button>
+            )}
           </div>
         )}
 
         {/* Instructions */}
-        {isInitialized && !faceDetected && (
+        {isInitialized && !faceDetected && !isCalibrating && (
           <div className="instructions">
             <h3>👋 Position your face in front of the camera</h3>
             <ul>
-              <li>Make sure you have good lighting</li>
+              <li>Good lighting required</li>
               <li>Face the camera directly</li>
-              <li>Stay within ~60cm of the camera</li>
+              <li>Stay within ~60cm</li>
             </ul>
           </div>
         )}
 
-        {faceDetected && eyeFeatures && (
+        {faceDetected && !modelTrained && !isCalibrating && (
           <div className="instructions success-box">
-            <h3>🎉 Eye tracking active!</h3>
-            <p>You should see cyan dots marking your face landmarks.</p>
-            <p><strong>Red/lime dots</strong> show your iris positions (critical for eye tracking).</p>
-            
-            {/* Feature Display */}
-            <div className="feature-display">
-              <h4>📊 Extracted Features:</h4>
-              <div className="feature-grid">
-                <div className="feature-item">
-                  <span className="feature-label">Left Iris X:</span>
-                  <span className="feature-value">{eyeFeatures.normalized.leftIrisX.toFixed(2)}</span>
-                </div>
-                <div className="feature-item">
-                  <span className="feature-label">Left Iris Y:</span>
-                  <span className="feature-value">{eyeFeatures.normalized.leftIrisY.toFixed(2)}</span>
-                </div>
-                <div className="feature-item">
-                  <span className="feature-label">Left Aperture:</span>
-                  <span className="feature-value">{eyeFeatures.normalized.leftAperture.toFixed(2)}</span>
-                </div>
-                <div className="feature-item">
-                  <span className="feature-label">Right Iris X:</span>
-                  <span className="feature-value">{eyeFeatures.normalized.rightIrisX.toFixed(2)}</span>
-                </div>
-                <div className="feature-item">
-                  <span className="feature-label">Right Iris Y:</span>
-                  <span className="feature-value">{eyeFeatures.normalized.rightIrisY.toFixed(2)}</span>
-                </div>
-                <div className="feature-item">
-                  <span className="feature-label">Right Aperture:</span>
-                  <span className="feature-value">{eyeFeatures.normalized.rightAperture.toFixed(2)}</span>
-                </div>
-              </div>
-              <p className="feature-tip">
-                <strong>💡 Try this:</strong> Move your eyes left/right/up/down and watch the values change!
-              </p>
-            </div>
-            
-            <p className="phase-info">
-              ✅ <strong>Phase 1, Week 2 Complete!</strong><br/>
-              Features extracted successfully. Ready for calibration!
-            </p>
+            <h3>✅ Ready for Calibration!</h3>
+            <p>Click "Start Calibration" to begin the 9-point calibration process.</p>
+            <p>This will take about 30 seconds.</p>
+          </div>
+        )}
+
+        {mode === 'tracking' && modelTrained && (
+          <div className="instructions success-box">
+            <h3>🎉 Eye Tracking Active!</h3>
+            <p>Look at any point and hold for 1.5 seconds to click.</p>
+            <p>Green cursor shows your gaze position.</p>
           </div>
         )}
       </main>
 
+      {/* Calibration Overlay */}
+      {isCalibrating && (
+        <Calibration
+          onCalibrationComplete={handleCalibrationComplete}
+          onCancel={handleCalibrationCancel}
+          eyeFeatures={eyeFeatures}
+          calibrationManager={calibrationManager}
+        />
+      )}
+
+      {/* Gaze Cursor */}
+      {mode === 'tracking' && (
+        <GazeCursor
+          position={gazePosition}
+          isDwelling={isDwelling}
+          dwellProgress={dwellProgress}
+          visible={gazePosition !== null}
+        />
+      )}
+
       <footer className="App-footer">
-        <p>Built with ❤️ by NovaVista | Free & Open Source | Phase 1: Core Detection</p>
-        <p className="tech-stack">
-          React • MediaPipe FaceMesh • TensorFlow.js
-        </p>
+        <p>Built with ❤️ by NovaVista | v1.0 Alpha</p>
       </footer>
     </div>
   );

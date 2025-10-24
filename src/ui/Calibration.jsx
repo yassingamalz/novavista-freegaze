@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import './Calibration.css';
 
-function Calibration({ onCalibrationComplete, onCancel }) {
+function Calibration({ onCalibrationComplete, onCancel, eyeFeatures, calibrationManager }) {
   const [currentPoint, setCurrentPoint] = useState(0);
   const [isCollecting, setIsCollecting] = useState(false);
   const [countdown, setCountdown] = useState(3);
@@ -40,20 +40,46 @@ function Calibration({ onCalibrationComplete, onCancel }) {
   }, [isCollecting, countdown]);
 
   function collectDataForPoint() {
-    // This will be called by parent component
     // Collect 60 samples (2 seconds at 30 FPS)
-    setTimeout(() => {
-      // Move to next point
-      if (currentPoint < totalPoints - 1) {
-        setCurrentPoint(currentPoint + 1);
-        setIsCollecting(false);
-        setCountdown(3);
-        setTimeout(() => setIsCollecting(true), 500);
-      } else {
-        // Calibration complete
-        onCalibrationComplete(calibrationData);
+    const point = calibrationPoints[currentPoint];
+    const screenX = (point.x / 100) * window.innerWidth;
+    const screenY = (point.y / 100) * window.innerHeight;
+    
+    let sampleCount = 0;
+    const maxSamples = 60;
+    
+    const collectInterval = setInterval(() => {
+      if (eyeFeatures) {
+        calibrationManager.addSample(eyeFeatures, screenX, screenY);
+        sampleCount++;
       }
-    }, 2000);
+      
+      if (sampleCount >= maxSamples) {
+        clearInterval(collectInterval);
+        
+        // Complete this point
+        const success = calibrationManager.completeCurrentPoint();
+        
+        if (success) {
+          // Move to next point
+          if (currentPoint < totalPoints - 1) {
+            setCurrentPoint(currentPoint + 1);
+            setIsCollecting(false);
+            setCountdown(3);
+            setTimeout(() => setIsCollecting(true), 500);
+          } else {
+            // Calibration complete
+            const data = calibrationManager.finishCalibration();
+            onCalibrationComplete(data);
+          }
+        } else {
+          // Failed to collect, retry
+          setIsCollecting(false);
+          setCountdown(3);
+          setTimeout(() => setIsCollecting(true), 500);
+        }
+      }
+    }, 33); // ~30 Hz
   }
 
   function startCalibration() {

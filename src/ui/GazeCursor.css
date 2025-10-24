@@ -1,0 +1,60 @@
+/* Gaze Cursor */
+.gaze-cursor {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate(-50%, -50%);
+  transition: opacity 0.2s ease;
+}
+
+.cursor-dot {
+  width: 20px;
+  height: 20px;
+  background: radial-gradient(circle, #00ff88 0%, rgba(0, 255, 136, 0.5) 70%, transparent 100%);
+  border-radius: 50%;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 20px rgba(0, 255, 136, 0.8),
+              0 0 40px rgba(0, 255, 136, 0.4);
+  animation: cursorPulse 2s ease-in-out infinite;
+}
+
+@keyframes cursorPulse {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.1);
+    opacity: 0.8;
+  }
+}
+
+/* Dwell Ring */
+.dwell-ring {
+  width: 60px;
+  height: 60px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-90deg);
+}
+
+.dwell-ring-bg {
+  fill: none;
+  stroke: rgba(0, 255, 136, 0.2);
+  stroke-width: 8;
+}
+
+.dwell-ring-progress {
+  fill: none;
+  stroke: #00ff88;
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-dasharray: 283;
+  stroke-dashoffset: 283;
+  transition: stroke-dashoffset 0.1s linear;
+  filter: drop-shadow(0 0 10px rgba(0, 255, 136, 0.8));
+}

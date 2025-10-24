@@ -334,6 +334,60 @@ body {
   color: #00d4ff;
 }
 
+/* Control Buttons */
+.control-buttons {
+  margin-top: 2rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.calibrate-button,
+.recalibrate-button,
+.tracking-button,
+.toggle-cursor-button {
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.calibrate-button,
+.tracking-button {
+  background: linear-gradient(135deg, #00ff88, #00d4ff);
+  color: #000;
+}
+
+.recalibrate-button {
+  background: rgba(255, 170, 0, 0.2);
+  color: #ffaa00;
+  border: 2px solid #ffaa00;
+}
+
+.toggle-cursor-button {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.calibrate-button:hover,
+.tracking-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 255, 136, 0.4);
+}
+
+.recalibrate-button:hover {
+  background: rgba(255, 170, 0, 0.3);
+}
+
+.toggle-cursor-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
 /* High Contrast Mode */
 @media (prefers-contrast: high) {
   .App {
